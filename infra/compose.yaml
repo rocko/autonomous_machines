@@ -1,0 +1,48 @@
+
+services:
+  ros:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    working_dir: /workspace
+    volumes:
+      - ../ros_ws:/workspace/ros_ws
+      - ../scripts:/workspace/scripts:ro
+    environment:
+      ROS_DOMAIN_ID: "42"
+    ports:
+      # Browser access requires an SSH tunnel.
+      # Never expose unauthenticated noVNC directly.
+      - "127.0.0.1:6080:6080"
+    command:
+      - bash
+      - /workspace/scripts/start_gazebo_server.sh
+    init: true
+    stop_grace_period: 15s
+
+  gazebo-gui:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    profiles:
+      - gui
+    depends_on:
+      - ros
+
+    # Share the simulation container's network namespace.
+    # This keeps Gazebo Transport discovery local.
+    network_mode: "service:ros"
+
+    working_dir: /workspace
+    volumes:
+      - ../scripts:/workspace/scripts:ro
+    environment:
+      ROS_DOMAIN_ID: "42"
+      DISPLAY: ":99"
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      QT_X11_NO_MITSHM: "1"
+    command:
+      - bash
+      - /workspace/scripts/start_gazebo_gui.sh
+    init: true
+    stop_grace_period: 15s

@@ -49,3 +49,21 @@ qtcreator-*
 
 # Catkin custom files
 CATKIN_IGNORE
+
+
+
+
+# Python
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+
+# ROS 2 / colcon
+ros_ws/build/
+ros_ws/install/
+ros_ws/log/
+
+# Local files
+.env
+*.log
