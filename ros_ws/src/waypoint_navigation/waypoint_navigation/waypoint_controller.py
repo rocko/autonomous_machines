@@ -19,6 +19,10 @@ class WaypointController(Node):
     def __init__(self) -> None:
         super().__init__("waypoint_controller")
 
+        # Select the simulated robot through a ROS parameter.
+        self.declare_parameter("robot", "vehicle_blue")
+        robot = self.get_parameter("robot").value
+
         # Mission parameters are supplied through a ROS YAML file.
         self.declare_parameter("waypoints", [0.0, 0.0])
         self.declare_parameter("arrival_tolerance", 0.2)
@@ -73,13 +77,13 @@ class WaypointController(Node):
         # The controller publishes commands at 10 Hz.
         self.command_pub = self.create_publisher(
             Twist,
-            "/model/vehicle_blue/cmd_vel",
+            f"/model/{robot}/cmd_vel",
             10,
         )
 
         self.odom_sub = self.create_subscription(
             Odometry,
-            "/model/vehicle_blue/odometry",
+            f"/model/{robot}/odometry",
             self.on_odometry,
             10,
         )

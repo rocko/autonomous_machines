@@ -1,6 +1,24 @@
-
 #!/usr/bin/env bash
 set -euo pipefail
+
+
+# Permit only one experiment per ROS workspace.
+#
+# flock releases the lock automatically when the process
+# exits, including most abnormal termination cases.
+LOCK_FILE="/workspace/ros_ws/.experiment.lock"
+
+exec 9>"$LOCK_FILE"
+
+if ! flock -n 9; then
+    echo "ERROR: Another experiment is already running." >&2
+    exit 1
+fi
+
+
+# The first argument must be the experiment configuration.
+# Fail immediately if no configuration was supplied.
+CONFIG="${1:?Missing experiment configuration path}"
 
 # EXP-0007: Automated autonomous waypoint navigation.
 #
@@ -12,19 +30,35 @@ set -euo pipefail
 #   - rosbag2
 #   - scripts/analyze_mission.py
 
-WORLD="diff_drive"
-ROBOT="vehicle_blue"
-
 BASE="/workspace/ros_ws"
-MISSION="$BASE/src/waypoint_navigation/config/mission.yaml"
 ANALYZER="/workspace/scripts/analyze_mission.py"
+CONFIG_LOADER="/workspace/scripts/load_experiment_config.py"
+
+# Parse the configuration in Python.
+# The command substitution preserves the loader's exit status,
+# so invalid YAML stops execution before starting any processes.
+if ! CONFIG_OUTPUT="$(python3 "$CONFIG_LOADER" "$CONFIG")"; then
+    echo "ERROR: Invalid experiment configuration." >&2
+    exit 1
+fi
+
+# Convert the fixed-order output into a Bash array.
+mapfile -t SETTINGS <<< "$CONFIG_OUTPUT"
+
+EXPERIMENT_ID="${SETTINGS[0]}"
+WORLD="${SETTINGS[1]}"
+ROBOT="${SETTINGS[2]}"
+MISSION="${SETTINGS[3]}"
+MAX_DURATION="${SETTINGS[4]}"
+EVALUATION_ENABLED="${SETTINGS[5]}"
+MAX_FINAL_ERROR="${SETTINGS[6]}"
 
 # Every experiment receives its own timestamped directory.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
-OUTPUT="$BASE/experiments/EXP-0007/$RUN_ID"
+# Store each experiment under its configured identifier.
+OUTPUT="$BASE/experiments/$EXPERIMENT_ID/$RUN_ID"
 BAG="$OUTPUT/mission"
 
-MAX_DURATION=180
 
 BRIDGE_PID=""
 BAG_PID=""
@@ -37,35 +71,45 @@ log() {
     printf '[experiment] %s\n' "$*"
 }
 
-# Stop a subprocess gracefully, then force termination only
-# if it fails to exit within the specified timeout.
+
+# Stop an entire experiment process group.
+#
+# Each component is started using setsid, making its initial
+# process PID also the process group ID.
+#
+# Sending a signal to a negative process group ID terminates
+# the ROS CLI process and its child processes together.
 stop_process() {
     local pid="$1"
     local max_wait="${2:-10}"
+    local i
 
-    if [[ -z "$pid" ]]; then
-        return
-    fi
+    [[ -n "$pid" ]] || return 0
 
-    if ! kill -0 "$pid" 2>/dev/null; then
-        wait "$pid" 2>/dev/null || true
-        return
-    fi
+    # Request graceful termination of the entire group.
+    kill -INT -- "-$pid" 2>/dev/null || true
 
-    kill -INT "$pid" 2>/dev/null || true
-
+    # Wait until no processes remain in that group.
     for ((i = 0; i < max_wait * 10; i++)); do
-        if ! kill -0 "$pid" 2>/dev/null; then
+        if ! kill -0 -- "-$pid" 2>/dev/null; then
             wait "$pid" 2>/dev/null || true
-            return
+            return 0
         fi
+
         sleep 0.1
     done
 
-    # SIGTERM is a fallback if graceful shutdown hangs.
-    kill -TERM "$pid" 2>/dev/null || true
+    # Escalate when graceful shutdown fails.
+    kill -TERM -- "-$pid" 2>/dev/null || true
+    sleep 1
+
+    if kill -0 -- "-$pid" 2>/dev/null; then
+        kill -KILL -- "-$pid" 2>/dev/null || true
+    fi
+
     wait "$pid" 2>/dev/null || true
 }
+
 
 cleanup() {
     local exit_code=$?
@@ -140,7 +184,8 @@ fi
 
 log "Starting ROS/Gazebo bridge..."
 
-ros2 run ros_gz_bridge parameter_bridge \
+# Run bridge and its CLI children in a dedicated process group.
+setsid ros2 run ros_gz_bridge parameter_bridge \
     "/model/$ROBOT/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist" \
     "/model/$ROBOT/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry" \
     > "$OUTPUT/bridge.log" 2>&1 &
@@ -164,7 +209,8 @@ fi
 
 log "Starting rosbag recording..."
 
-ros2 bag record \
+# Isolate the recorder so its children are also cleaned up.
+setsid ros2 bag record \
     -o "$BAG" \
     "/model/$ROBOT/odometry" \
     "/model/$ROBOT/cmd_vel" \
@@ -186,9 +232,11 @@ fi
 
 log "Starting autonomous waypoint controller..."
 
-ros2 run waypoint_navigation waypoint_controller \
+# Isolate the autonomous controller process group.
+setsid ros2 run waypoint_navigation waypoint_controller \
     --ros-args \
     --params-file "$MISSION" \
+    -p "robot:=$ROBOT" \
     > "$OUTPUT/controller.log" 2>&1 &
 
 CONTROLLER_PID=$!
