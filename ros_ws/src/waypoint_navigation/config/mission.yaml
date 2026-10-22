@@ -1,0 +1,14 @@
+
+waypoint_controller:
+  ros__parameters:
+    # Flat list of x,y coordinates in the odometry frame.
+    # Each consecutive pair represents one waypoint.
+    waypoints: [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0]
+
+    # Navigation parameters.
+    arrival_tolerance: 0.2
+    max_linear_velocity: 0.3
+    max_angular_velocity: 0.8
+
+    # Stop when odometry has not updated for this many seconds.
+    odometry_timeout: 2.0
