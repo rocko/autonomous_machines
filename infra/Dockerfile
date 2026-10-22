@@ -33,6 +33,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-ros-gz \
     python3-colcon-common-extensions \
     python3-pytest \
+    ros-jazzy-rosbag2-py \
+    python3-matplotlib \
+    python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
