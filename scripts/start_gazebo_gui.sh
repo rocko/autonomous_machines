@@ -38,8 +38,10 @@ if ! DISPLAY=:99 xdpyinfo >/dev/null 2>&1; then
     exit 1
 fi
 
-# Start VNC. Only local connections inside the
-# shared network namespace are accepted.
+# Publish the virtual display over VNC.
+#
+# MIT-SHM is disabled because framebuffer attachment produced
+# X_ShmAttach / BadAccess errors in the Docker environment.
 x11vnc \
     -display :99 \
     -rfbport 5900 \
@@ -47,7 +49,8 @@ x11vnc \
     -nopw \
     -forever \
     -shared \
-    -noxdamage &
+    -noxdamage \
+    -noshm &
 PIDS+=("$!")
 
 # Expose the VNC viewer through HTTP/WebSocket.
@@ -57,14 +60,17 @@ websockify \
     localhost:5900 &
 PIDS+=("$!")
 
-# Wait for the simulation server to advertise its world.
+# Wait for Gazebo's world-discovery service.
+# Unlike /world/<name>/control, this service is independent
+# of the particular simulation world being loaded.
 READY=false
 
 for attempt in $(seq 1 30); do
-    if gz service -l | grep -qx '/world/shapes/control'; then
+    if gz service -l | grep -qx '/gazebo/worlds'; then
         READY=true
         break
     fi
+
     sleep 1
 done
 
@@ -76,9 +82,16 @@ fi
 echo "Gazebo server detected. Starting graphical client."
 
 # Ogre is used because this renderer worked with Xvfb.
-gz sim -g -v 3 --render-engine ogre &
-PIDS+=("$!")
+#gz sim -g -v 3 --render-engine ogre &
+#PIDS+=("$!")
 
 # Keep the container running while monitoring its children.
 # Terminate the service if any essential process exits.
-wait -n "${PIDS[@]}"
+#wait -n "${PIDS[@]}"
+
+# Start Gazebo as the primary application.
+# Its exit status determines whether the GUI service succeeds.
+#
+# Supporting processes are stopped by the existing cleanup trap
+# when Gazebo terminates.
+gz sim -g -v 4 --render-engine ogre

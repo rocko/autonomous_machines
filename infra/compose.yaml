@@ -10,6 +10,8 @@ services:
       - ../scripts:/workspace/scripts:ro
     environment:
       ROS_DOMAIN_ID: "42"
+      # Both Gazebo processes must use the same discovery partition.
+      GZ_PARTITION: "autonomous_machines"
     ports:
       # Browser access requires an SSH tunnel.
       # Never expose unauthenticated noVNC directly.
@@ -28,7 +30,9 @@ services:
       - gui
     depends_on:
       - ros
-
+    # Allow the virtual X server and rendering stack
+    # more shared memory than Docker's default.
+    shm_size: "1gb"
     # Share the simulation container's network namespace.
     # This keeps Gazebo Transport discovery local.
     network_mode: "service:ros"
@@ -38,6 +42,7 @@ services:
       - ../scripts:/workspace/scripts:ro
     environment:
       ROS_DOMAIN_ID: "42"
+      GZ_PARTITION: "autonomous_machines"
       DISPLAY: ":99"
       LIBGL_ALWAYS_SOFTWARE: "1"
       QT_X11_NO_MITSHM: "1"
