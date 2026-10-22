@@ -1,0 +1,17 @@
+
+experiment:
+  id: EXP-0008
+  name: waypoint_baseline
+
+simulation:
+  world: diff_drive
+  robot: vehicle_blue
+
+mission:
+  # Path relative to the ROS workspace.
+  config: src/waypoint_navigation/config/mission.yaml
+  timeout_s: 180
+
+evaluation:
+  enabled: true
+  max_final_position_error_m: 0.2
